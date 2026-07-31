@@ -1,4 +1,6 @@
 streamlit
 pymupdf
 google-genai
+jinja2
+weasyprint
 reportlab
