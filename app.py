@@ -30,7 +30,11 @@ def generate_study_data(text: str) -> dict:
         raise ValueError("GEMINI_API_KEY が設定されていません。")
 
     client = genai.Client(api_key=api_key)
-    prompt = f"以下の講義テキストを解析し、構造化された試験対策テキストを作成してください:\n\n{text[:10000]}"
+    prompt = (
+        "以下の講義テキストを解析し、構造化された試験対策テキストを作成してください。"
+        "出力はすべて日本語にしてください。\n\n"
+        f"{text[:10000]}"
+    )
 
     response = client.models.generate_content(
         model='gemini-2.5-flash',
@@ -70,43 +74,43 @@ def generate_study_data(text: str) -> dict:
     return json.loads(response.text)
 
 def render_pdf(data: dict) -> bytes:
-  buffer = io.BytesIO()
-  doc = SimpleDocTemplate(
-    buffer,
-    pagesize=A4,
-    rightMargin=2 * cm,
-    leftMargin=2 * cm,
-    topMargin=2 * cm,
-    bottomMargin=2 * cm,
-  )
-  styles = getSampleStyleSheet()
-  for style_name in ("Title", "Heading2", "BodyText"):
-    styles[style_name].fontName = FONT_NAME
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=2 * cm,
+        leftMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+    styles = getSampleStyleSheet()
+    for style_name in ("Title", "Heading2", "BodyText"):
+        styles[style_name].fontName = FONT_NAME
 
-  story = []
-  story.append(Paragraph(data.get("title", "Study Guide"), styles["Title"]))
-  story.append(Spacer(1, 0.5 * cm))
+    story = []
+    story.append(Paragraph(data.get("title", "学習ガイド"), styles["Title"]))
+    story.append(Spacer(1, 0.5 * cm))
 
-  story.append(Paragraph("1. 重要用語と解説", styles["Heading2"]))
-  for item in data.get("key_terms", []):
-    story.append(Paragraph(f"<b>{item.get('term', '')}</b>：{item.get('definition', '')}", styles["BodyText"]))
-    story.append(Spacer(1, 0.2 * cm))
+    story.append(Paragraph("1. 重要用語と解説", styles["Heading2"]))
+    for item in data.get("key_terms", []):
+        story.append(Paragraph(f"<b>{item.get('term', '')}</b>：{item.get('definition', '')}", styles["BodyText"]))
+        story.append(Spacer(1, 0.2 * cm))
 
-  story.append(Spacer(1, 0.3 * cm))
-  story.append(Paragraph("2. 講義要点・概念", styles["Heading2"]))
-  for point in data.get("core_points", []):
-    story.append(Paragraph(f"・{point}", styles["BodyText"]))
-    story.append(Spacer(1, 0.1 * cm))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("2. 講義要点・概念", styles["Heading2"]))
+    for point in data.get("core_points", []):
+        story.append(Paragraph(f"・{point}", styles["BodyText"]))
+        story.append(Spacer(1, 0.1 * cm))
 
-  story.append(Spacer(1, 0.3 * cm))
-  story.append(Paragraph("3. セルフチェック問題", styles["Heading2"]))
-  for item in data.get("quiz", []):
-    story.append(Paragraph(f"問：{item.get('question', '')}", styles["BodyText"]))
-    story.append(Paragraph(f"答：{item.get('answer', '')}", styles["BodyText"]))
-    story.append(Spacer(1, 0.2 * cm))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("3. セルフチェック問題", styles["Heading2"]))
+    for item in data.get("quiz", []):
+        story.append(Paragraph(f"問：{item.get('question', '')}", styles["BodyText"]))
+        story.append(Paragraph(f"答：{item.get('answer', '')}", styles["BodyText"]))
+        story.append(Spacer(1, 0.2 * cm))
 
-  doc.build(story)
-  return buffer.getvalue()
+    doc.build(story)
+    return buffer.getvalue()
 
 # UI部
 st.set_page_config(page_title="学習用PDF生成アプリ", layout="centered")
