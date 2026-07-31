@@ -1,6 +1,7 @@
 import json
 import os
 import io
+import base64
 
 import fitz  # PyMuPDF
 import streamlit as st
@@ -30,7 +31,11 @@ def generate_study_data(text: str) -> dict:
         raise ValueError("GEMINI_API_KEY が設定されていません。")
 
     client = genai.Client(api_key=api_key)
-    prompt = f"以下の講義テキストを解析し、構造化された試験対策テキストを作成してください:\n\n{text[:10000]}"
+    prompt = (
+        "以下の講義テキストを解析し、構造化された試験対策テキストを作成してください。"
+        "出力はすべて日本語にしてください。\n\n"
+        f"{text[:10000]}"
+    )
 
     response = client.models.generate_content(
         model='gemini-2.5-flash',
@@ -70,48 +75,48 @@ def generate_study_data(text: str) -> dict:
     return json.loads(response.text)
 
 def render_pdf(data: dict) -> bytes:
-  buffer = io.BytesIO()
-  doc = SimpleDocTemplate(
-    buffer,
-    pagesize=A4,
-    rightMargin=2 * cm,
-    leftMargin=2 * cm,
-    topMargin=2 * cm,
-    bottomMargin=2 * cm,
-  )
-  styles = getSampleStyleSheet()
-  for style_name in ("Title", "Heading2", "BodyText"):
-    styles[style_name].fontName = FONT_NAME
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=2 * cm,
+        leftMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+    styles = getSampleStyleSheet()
+    for style_name in ("Title", "Heading2", "BodyText"):
+        styles[style_name].fontName = FONT_NAME
 
-  story = []
-  story.append(Paragraph(data.get("title", "Study Guide"), styles["Title"]))
-  story.append(Spacer(1, 0.5 * cm))
+    story = []
+    story.append(Paragraph(data.get("title", "学習ガイド"), styles["Title"]))
+    story.append(Spacer(1, 0.5 * cm))
 
-  story.append(Paragraph("1. 重要用語と解説", styles["Heading2"]))
-  for item in data.get("key_terms", []):
-    story.append(Paragraph(f"<b>{item.get('term', '')}</b>：{item.get('definition', '')}", styles["BodyText"]))
-    story.append(Spacer(1, 0.2 * cm))
+    story.append(Paragraph("1. 重要用語と解説", styles["Heading2"]))
+    for item in data.get("key_terms", []):
+        story.append(Paragraph(f"<b>{item.get('term', '')}</b>：{item.get('definition', '')}", styles["BodyText"]))
+        story.append(Spacer(1, 0.2 * cm))
 
-  story.append(Spacer(1, 0.3 * cm))
-  story.append(Paragraph("2. 講義要点・概念", styles["Heading2"]))
-  for point in data.get("core_points", []):
-    story.append(Paragraph(f"・{point}", styles["BodyText"]))
-    story.append(Spacer(1, 0.1 * cm))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("2. 講義要点・概念", styles["Heading2"]))
+    for point in data.get("core_points", []):
+        story.append(Paragraph(f"・{point}", styles["BodyText"]))
+        story.append(Spacer(1, 0.1 * cm))
 
-  story.append(Spacer(1, 0.3 * cm))
-  story.append(Paragraph("3. セルフチェック問題", styles["Heading2"]))
-  for item in data.get("quiz", []):
-    story.append(Paragraph(f"問：{item.get('question', '')}", styles["BodyText"]))
-    story.append(Paragraph(f"答：{item.get('answer', '')}", styles["BodyText"]))
-    story.append(Spacer(1, 0.2 * cm))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph("3. セルフチェック問題", styles["Heading2"]))
+    for item in data.get("quiz", []):
+        story.append(Paragraph(f"問：{item.get('question', '')}", styles["BodyText"]))
+        story.append(Paragraph(f"答：{item.get('answer', '')}", styles["BodyText"]))
+        story.append(Spacer(1, 0.2 * cm))
 
-  doc.build(story)
-  return buffer.getvalue()
+    doc.build(story)
+    return buffer.getvalue()
 
 # UI部
 st.set_page_config(page_title="学習用PDF生成アプリ", layout="centered")
 
-st.title("📚 ミニマル学習PDFジェネレーター")
+st.title("📚 ClearPDF")
 st.write("講義PDFを読み込み、認知的ノイズを抑えたシンプルな学習ガイドPDFを出力します。")
 
 uploaded_file = st.file_uploader("PDFファイルをアップロード", type=["pdf"])
@@ -125,12 +130,58 @@ if uploaded_file is not None:
                 study_data = generate_study_data(raw_text)
                 output_pdf_bytes = render_pdf(study_data)
 
-                st.success("PDFの生成が完了しました！")
-                st.download_button(
-                    label="📥 生成されたPDFをダウンロード",
-                    data=output_pdf_bytes,
-                    file_name=f"Minimal_Study_{uploaded_file.name}",
-                    mime="application/pdf"
+                # PDFのダウンロード用状態保持
+                st.session_state["pdf_data"] = output_pdf_bytes
+                st.session_state["file_name"] = (
+                    f"Minimal_Study_{uploaded_file.name}"
                 )
+                st.success("PDFの生成が完了しました！")
+
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
+
+# PDFが生成されている場合、右からスライドイン表示
+if "pdf_data" in st.session_state:
+    st.download_button(
+        label="📥 生成されたPDFをダウンロード",
+        data=st.session_state["pdf_data"],
+        file_name=st.session_state["file_name"],
+        mime="application/pdf",
+    )
+
+    # Base64エンコードして<iframe>に渡す
+    base64_pdf = base64.b64encode(st.session_state["pdf_data"]).decode("utf-8")
+
+    # 右から湧き上がる（スライドイン＆フェードイン）CSSとHTML
+    preview_html = f"""
+    <style>
+    @keyframes slideInRight {{
+        0% {{
+            transform: translateX(100%) scale(0.9);
+            opacity: 0;
+        }}
+        100% {{
+            transform: translateX(0) scale(1);
+            opacity: 1;
+        }}
+    }}
+    .pdf-preview-container {{
+        animation: slideInRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        margin-top: 20px;
+    }}
+    </style>
+    <div class="pdf-preview-container">
+        <iframe
+            src="data:application/pdf;base64,{base64_pdf}"
+            width="100%"
+            height="600px"
+            style="border: none;"
+        ></iframe>
+    </div>
+    """
+
+    st.components.v1.html(preview_html, height=650)
+
