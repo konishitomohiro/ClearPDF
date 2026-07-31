@@ -1,105 +1,24 @@
-import streamlit as st
-import fitz  # PyMuPDF
 import json
 import os
+import io
+
+import fitz  # PyMuPDF
+import streamlit as st
 from google import genai
 from google.genai import types
-from jinja2 import Template
-from weasyprint import HTML
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.pdfmetrics import registerFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 # ---------------------------------------------------------
 # 視覚・認知の最適化を施したHTML/CSSテンプレート
 # ノイズ削減のため：色分け廃止、枠線廃止、カードデザイン廃止
 # ---------------------------------------------------------
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
-    @page { 
-      size: A4; 
-      margin: 25mm 20mm; /* タブレット筆記・余白確保のための広めマージン */
-    }
-    body { 
-      font-family: "Noto Sans JP", "Hiragino Sans", "Meiryo", Arial, sans-serif; 
-      color: #000000; /* 完全な白黒で視覚刺激を統一 */
-      line-height: 1.8; /* 行間を広げて読書負荷を軽減 */
-      font-size: 11pt;
-    }
-    
-    /* 項目（タイトル）の見出し構造 */
-    h1 { 
-      font-size: 18pt; 
-      font-weight: bold;
-      margin-bottom: 24pt;
-      padding-bottom: 6pt;
-      border-bottom: 1px solid #000000; /* 単純な黒の下線のみ */
-      font-family: "Noto Sans JP", "Hiragino Sans", "Meiryo", Arial, sans-serif;
-    }
-    h2 { 
-      font-size: 14pt; 
-      font-weight: bold;
-      margin-top: 28pt; 
-      margin-bottom: 12pt;
-      font-family: "Noto Sans JP", "Hiragino Sans", "Meiryo", Arial, sans-serif;
-    }
-    
-    /* 本文・リストのノイズ削減 */
-    p { 
-      margin-bottom: 10pt; 
-    }
-    ul, ol { 
-      padding-left: 20pt; 
-      margin-bottom: 14pt; 
-    }
-    li { 
-      margin-bottom: 6pt; 
-    }
-    
-    /* 太字（キーワード）の強調も最小限に */
-    .term { 
-      font-weight: bold; 
-    }
-    
-    /* クイズセクション（カードや枠線を完全廃止し、シンプルな段落へ） */
-    .quiz-item {
-      margin-bottom: 16pt;
-    }
-    .question {
-      font-weight: bold;
-    }
-    .answer {
-      margin-top: 4pt;
-      color: #333333; /* 回答であることが分かる最小限のトーン差 */
-    }
-  </style>
-</head>
-<body>
-  <h1>{{ data.title }}</h1>
-
-  <h2>1. 重要用語と解説</h2>
-  {% for item in data.key_terms %}
-    <p><span class="term">{{ item.term }}</span>：{{ item.definition }}</p>
-  {% endfor %}
-
-  <h2>2. 講義要点・概念</h2>
-  <ul>
-    {% for point in data.core_points %}
-      <li>{{ point }}</li>
-    {% endfor %}
-  </ul>
-
-  <h2>3. セルフチェック問題</h2>
-  {% for q in data.quiz %}
-    <div class="quiz-item">
-      <div class="question">問：{{ q.question }}</div>
-      <div class="answer">答：{{ q.answer }}</div>
-    </div>
-  {% endfor %}
-</body>
-</html>
-"""
+FONT_NAME = "HeiseiKakuGo-W5"
+registerFont(UnicodeCIDFont(FONT_NAME))
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -151,9 +70,43 @@ def generate_study_data(text: str) -> dict:
     return json.loads(response.text)
 
 def render_pdf(data: dict) -> bytes:
-    template = Template(HTML_TEMPLATE)
-    html_out = template.render(data=data)
-    return HTML(string=html_out).write_pdf()
+  buffer = io.BytesIO()
+  doc = SimpleDocTemplate(
+    buffer,
+    pagesize=A4,
+    rightMargin=2 * cm,
+    leftMargin=2 * cm,
+    topMargin=2 * cm,
+    bottomMargin=2 * cm,
+  )
+  styles = getSampleStyleSheet()
+  for style_name in ("Title", "Heading2", "BodyText"):
+    styles[style_name].fontName = FONT_NAME
+
+  story = []
+  story.append(Paragraph(data.get("title", "Study Guide"), styles["Title"]))
+  story.append(Spacer(1, 0.5 * cm))
+
+  story.append(Paragraph("1. 重要用語と解説", styles["Heading2"]))
+  for item in data.get("key_terms", []):
+    story.append(Paragraph(f"<b>{item.get('term', '')}</b>：{item.get('definition', '')}", styles["BodyText"]))
+    story.append(Spacer(1, 0.2 * cm))
+
+  story.append(Spacer(1, 0.3 * cm))
+  story.append(Paragraph("2. 講義要点・概念", styles["Heading2"]))
+  for point in data.get("core_points", []):
+    story.append(Paragraph(f"・{point}", styles["BodyText"]))
+    story.append(Spacer(1, 0.1 * cm))
+
+  story.append(Spacer(1, 0.3 * cm))
+  story.append(Paragraph("3. セルフチェック問題", styles["Heading2"]))
+  for item in data.get("quiz", []):
+    story.append(Paragraph(f"問：{item.get('question', '')}", styles["BodyText"]))
+    story.append(Paragraph(f"答：{item.get('answer', '')}", styles["BodyText"]))
+    story.append(Spacer(1, 0.2 * cm))
+
+  doc.build(story)
+  return buffer.getvalue()
 
 # UI部
 st.set_page_config(page_title="学習用PDF生成アプリ", layout="centered")
