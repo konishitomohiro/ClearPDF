@@ -153,7 +153,12 @@ if "pdf_data" in st.session_state:
     base64_pdf = base64.b64encode(st.session_state["pdf_data"]).decode("utf-8")
 
     # 右から湧き上がる（スライドイン＆フェードイン）CSSとHTML
+        # PDF.js を使用して安全にレンダリングするHTML/CSSコード
     preview_html = f"""
+    <div id="pdf-container" class="pdf-preview-container">
+        <canvas id="pdf-render"></canvas>
+    </div>
+
     <style>
     @keyframes slideInRight {{
         0% {{
@@ -168,20 +173,46 @@ if "pdf_data" in st.session_state:
     .pdf-preview-container {{
         animation: slideInRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         border-radius: 12px;
-        overflow: hidden;
         box-shadow: 0 10px 25px rgba(0,0,0,0.15);
         margin-top: 20px;
+        background-color: #525659;
+        display: flex;
+        justify-content: center;
+        padding: 20px 0;
+        max-height: 600px;
+        overflow-y: auto;
+    }}
+    #pdf-render {{
+        border: 1px solid #ccc;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
     </style>
-    <div class="pdf-preview-container">
-        <iframe
-            src="data:application/pdf;base64,{base64_pdf}"
-            width="100%"
-            height="600px"
-            style="border: none;"
-        ></iframe>
-    </div>
+
+    <!-- PDF.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+    const pdfData = atob("{base64_pdf}");
+    const loadingTask = pdfjsLib.getDocument({{data: pdfData}});
+    
+    loadingTask.promise.then(pdf => {{
+        // 1ページ目をレンダリング
+        pdf.getPage(1).then(page => {{
+            const viewport = page.getViewport({{scale: 1.2}});
+            const canvas = document.getElementById('pdf-render');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            const renderContext = {{
+                canvasContext: context,
+                viewport: viewport
+            }};
+            page.render(renderContext);
+        }});
+    }}).catch(err => {{
+        console.error("PDF.js Render Error: ", err);
+    }});
+    </script>
     """
 
     st.components.v1.html(preview_html, height=650)
-
